@@ -14,6 +14,7 @@ import subprocess
 import urllib.request
 import urllib.parse
 import urllib.error
+from scam_detector_backtrace import is_private_ip
 from email import policy
 from email.parser import BytesParser, Parser
 from datetime import datetime, timezone
@@ -627,14 +628,35 @@ def scan_red_flags(text):
 # ============================================================================
 
 def calculate_threat_score(findings):
-    """Calculate overall threat score from all findings.
-    
-    UPDATED: Missing auth now penalized more heavily.
-    WHOIS "not found" treated as suspicious, not neutral.
-    Free email providers penalized less unless paired with other signals.
-    """
+    """Calculate overall threat score from all findings."""
     score = 0
     reasons = []
+    
+    # ===========================================================================
+    # EXTRACT SENDER INFO (Needed for database + verifier checks)
+    # ===========================================================================
+    sender_email = findings.get('sender_email', '')
+    sender_domain = findings.get('sender_domain', '')
+    sender_name = findings.get('sender_name', '')
+    claimed_company = findings.get('company_name', '').replace('.', ' ')
+    
+    # ===========================================================================
+    # DATABASE CHECK (NEW - Run Early for Repeat Offender Detection)
+    # ===========================================================================
+    if sender_email or sender_domain:
+        from scam_detector_db import check_known_scammer
+        
+        known = check_known_scammer(sender_email, sender_domain)
+        if known['found']:
+            if known['score'] >= 61:
+                score += 25
+                reasons.append(f"Sender '{sender_email}' HIGH RISK in local database ({known['count']} reports)")
+            elif known['score'] >= 41:
+                score += 15
+                reasons.append(f"Sender '{sender_email}' flagged in local database ({known['count']} reports)")
+            else:
+                score += 5
+                reasons.append(f"Sender seen in local database ({known['count']} reports, historical score: {known['score']})")
     
     # ===========================================================================
     # 1. AUTHENTICATION PENALTIES (REVISED)
@@ -712,6 +734,32 @@ def calculate_threat_score(findings):
         reasons.append("WHOIS privacy protection enabled")
     
     # ===========================================================================
+    # RECRUITER VERIFICATION (NEW - Identity Cross-Reference)
+    # ===========================================================================
+    # Only run verification for non-free-email domains
+    free_providers = ['gmail.com', 'hotmail.com', 'yahoo.com', 'outlook.com', 'aol.com']
+    
+    if sender_domain and sender_domain.lower() not in free_providers and claimed_company:
+        from scam_detector_verify import verify_recruiter
+        
+        try:
+            verified = verify_recruiter(
+                sender_name,
+                sender_email,
+                claimed_company
+            )
+            
+            findings['verified'] = verified  # Store for reporting
+            
+            if verified.get('score_impact', 0) > 0:
+                score += verified['score_impact']
+                for flag in verified['flags']:
+                    reasons.append(flag)
+        except Exception as e:
+            # Verification failed silently — don't break scoring
+            findings['verified_error'] = str(e)
+    
+    # ===========================================================================
     # 3. IP REPUTATION
     # ===========================================================================
     ip_info = findings.get('ip_reputation', {})
@@ -732,7 +780,7 @@ def calculate_threat_score(findings):
         malicious = vt_domain.get('malicious', 0)
         if malicious > 0:
             score += DOMAIN_REPUTATION_WEIGHTS["VIRUSTOTAL_RED_FLAG"]
-            reasons.append(f"VirusTwo: {malicious} engines flagged domain as malicious")
+            reasons.append(f"VirusTotal: {malicious} engines flagged domain as malicious")
         else:
             # Check if it's "not in database"
             if vt_domain.get('status') == 'not_in_database':
@@ -745,39 +793,75 @@ def calculate_threat_score(findings):
             malicious = url_result.get('malicious', 0)
             if malicious > 0:
                 score += 15
-                reasons.append(f"VirusTwo: {malicious} engines flagged URL as malicious")
+                reasons.append(f"VirusTotal: {malicious} engines flagged URL as malicious")
     
-       # ===========================================================================
+    # ===========================================================================
     # 5. BRAND IMPERSONATION DETECTION (REVISED)
     # ===========================================================================
-    sender_domain = findings.get('sender_domain', '').lower()
-    
     # Official domain mappings — brand name to their actual domains
     BRAND_OFFICIAL_DOMAINS = {
-        'deloitte': ['deloitte.com'],
-        'boeing': ['boeing.com', 'careers.boeing.com'],
-        'mckesson': ['mckesson.com'],
-        'centene': ['centene.com'],
-        'edward_jones': ['edwardjones.com', 'edwardsjones.com'],
-        'microsoft': ['microsoft.com', 'live.com', 'outlook.com'],
-        'apple': ['apple.com', 'icloud.com'],
-        'amazon': ['amazon.com', 'amazon.jobs', 'amazonaws.com'],
-        'google': ['google.com', 'gmail.com', 'abc.xyz'],
-        'meta': ['meta.com', 'facebook.com'],
-        'apple': ['apple.com'],
-    }
-    
+    'deloitte': ['deloitte.com'],
+    'boeing': ['boeing.com', 'careers.boeing.com'],
+    'mckesson': ['mckesson.com'],
+    'centene': ['centene.com'],
+    'edward_jones': ['edwardjones.com', 'edwardsjones.com'],
+    'microsoft': ['microsoft.com', 'live.com', 'outlook.com'],
+    'apple': ['apple.com', 'icloud.com'],
+    'amazon': ['amazon.com', 'amazon.jobs', 'amazonaws.com'],
+    'google': ['google.com', 'gmail.com', 'abc.xyz'],
+    'meta': ['meta.com', 'facebook.com'],
+}
+
+    sender_domain_lower = sender_domain.lower()
+
     for brand, allowed_domains in BRAND_OFFICIAL_DOMAINS.items():
-        # Skip if sender domain is an official domain
-        if sender_domain in allowed_domains:
-            continue
+    allowed_lower = [d.lower() for d in allowed_domains]
+    
+    # Skip if sender domain is an official domain (case-insensitive)
+    if sender_domain_lower in allowed_lower:
+        continue
+    
+    # Case-insensitive brand name check
+    if brand.lower() in sender_domain_lower:
+        score += 20
+        reasons.append(f"Domain resembles '{brand.title()}' but doesn't match official domain")
+        break
+
+    # Add this to calculate_threat_score() after the recruiter verification section:
+
+    # ===========================================================================
+    # EMAIL BACKTRACING (NEW)
+    # ===========================================================================
+    if sender_email and raw_email:  # raw_email needed for header parsing
+    from scam_detector_backtrace import EmailBacktracer, analyze_route_suspicion
+    
+    # Load GeoLite2 database path from config
+    try:
+        from scam_detector_config import GEOIP_DATABASE_PATH
+    except ImportError:
+        GEOIP_DATABASE_PATH = '/home/owner/Documents/scam-detector/data/Geolite2-Country.mmdb'
+    
+    try:
+        backtracer = EmailBacktracer(GEOIP_DATABASE_PATH)
+        backtrace_result = backtracer.backtrace_email(raw_email)
         
-        # Check if brand name appears in sender domain but it's NOT an official domain
-        # This catches "deloitte-careers.net" vs "deloitte.com"
-        if brand in sender_domain:
-            score += 20
-            reasons.append(f"Domain resembles '{brand.title()}' but doesn't match official domain")
-            break
+        # Store for reporting
+        findings['backtrace'] = backtrace_result
+        
+        # Analyze route suspicion
+        route_analysis = analyze_route_suspicion(
+            backtrace_result,
+            findings.get('company_location', '')
+        )
+        
+        if route_analysis['risk_score'] > 0:
+            score += route_analysis['risk_score']
+            for finding in route_analysis['findings']:
+                reasons.append(finding)
+        
+        backtracer.close()
+    except Exception as e:
+        findings['backtrace_error'] = str(e)    
     # ===========================================================================
     # 6. RED FLAG CONTENT (REVISED WITH FREE EMAIL EXCEPTION)
     # ===========================================================================
@@ -831,9 +915,11 @@ def calculate_threat_score(findings):
     # ===========================================================================
     score = min(score, 100)
     
-    # Use updated bands for verdict
-    if score >= 71:
-        verdict = "HIGH RISK — Likely scam"
+    # Updated bands for v3.1 (includes database hits, verification signals)
+    if score >= 81:
+        verdict = "CRITICAL RISK — Confirmed or highly likely scam"
+    elif score >= 61:
+        verdict = "HIGH RISK — Likely scam, do not engage"
     elif score >= 41:
         verdict = "MEDIUM RISK — Suspicious, investigate further"
     elif score >= 21:
