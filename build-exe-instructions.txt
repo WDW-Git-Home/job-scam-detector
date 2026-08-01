@@ -1,0 +1,7 @@
+# On your Windows machine
+git clone <repo>
+cd scam-detector
+pip install -r requirements.txt
+pyinstaller --onefile --windowed scam-detector-gui.py
+
+# Distribute dist\scam-detector.exe

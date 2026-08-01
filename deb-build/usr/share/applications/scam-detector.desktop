@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Job Scam Detector
+Comment=Analyze recruitment emails for scam indicators
+Exec=scam-detector
+Icon=scam-detector
+Terminal=false
+Type=Application
+Categories=Utility;Security;

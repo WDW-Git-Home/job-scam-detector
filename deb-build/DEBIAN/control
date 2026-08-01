@@ -1,0 +1,10 @@
+Package: scam-detector
+Version: 3.0
+Section: utils
+Priority: optional
+Architecture: all
+Depends: python3, python3-customtkinter, python3-pil
+Maintainer: Dave Wells
+Description: Job Scam Detector v3.0
+ Analyze recruitment emails for scam indicators using
+ authentication checks, WHOIS lookups, and pattern detection.
