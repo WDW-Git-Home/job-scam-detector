@@ -217,47 +217,6 @@ def verify_recruiter(sender_name, sender_email, claimed_company):
     if not mx_result['valid']:
         flags.append(f"No valid MX records for domain")
         score_impact += 10
-
-    # ===========================================================================
-    # EMAIL BACKTRACING (NEW)
-    # ===========================================================================
-    raw_email = findings.get('raw_email', '')
-    if raw_email:
-        from scam_detector_backtrace import EmailBacktracer, analyze_route_suspicion
-        
-        try:
-            # Try loading GeoIP database path from config
-            try:
-                from scam_detector_config import GEOIP_DATABASE_PATH
-            except ImportError:
-                GEOIP_DATABASE_PATH = os.path.join(
-                    os.path.dirname(__file__), 'data', 'Geolite2-Country.mmdb'
-                )
-            
-            backtracer = EmailBacktracer(GEOIP_DATABASE_PATH)
-            backtrace_result = backtracer.backtrace_email(raw_email)
-            
-            findings['backtrace'] = backtrace_result
-            
-            # Score the route suspicion
-            route_analysis = analyze_route_suspicion(
-                backtrace_result,
-                findings.get('company_location', '')
-            )
-            
-            if route_analysis['risk_score'] > 0:
-                score += route_analysis['risk_score']
-                for finding in route_analysis['findings']:
-                    reasons.append(finding)
-            
-            # Bonus: check if origin IP matches VirusTotal data
-            origin_ip = backtrace_result.get('origin_ip')
-            if origin_ip and not is_private_ip(origin_ip):
-                findings['origin_ip'] = origin_ip
-            
-            backtracer.close()
-        except Exception as e:
-            findings['backtrace_error'] = str(e)
     
     # 3. Company Website
     website_result = verify_company_website(claimed_company, email_domain)
