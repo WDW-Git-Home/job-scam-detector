@@ -1,0 +1,3 @@
+MAXMIND_ACCOUNT_ID = "<your_account_id>"
+MAXMIND_LICENSE_KEY = "<your_license_key>"
+GEOIP_DATABASE_PATH = "/path/to/Geolite2-Country.mmdb"

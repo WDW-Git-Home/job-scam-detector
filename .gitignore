@@ -15,3 +15,12 @@ GeoIP.conf
 
 # Test runner
 run_tests.py
+
+# Built packages
+*.deb
+
+# Virtual environment
+venv/
+scam_detector_config.py
+*.pyc
+scam_detector_config.py
