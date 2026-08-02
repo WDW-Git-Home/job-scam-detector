@@ -322,7 +322,7 @@ def analyze_batch(folder_path, verbose=False):
     return True
 
 
-def generate_report(file_path, output_path=None):
+def generate_report(file_path, output_path=None, format_type="html"):
     """Generate HTML report for a single email."""
     from scam_detector_core import (
         parse_eml_file, parse_pasted_email, extract_sender_domain,
@@ -353,12 +353,27 @@ def generate_report(file_path, output_path=None):
     email_body = extract_body(msg)
     red_flags = scan_red_flags(email_body)
     
+    # Extract sender name and company
+    sender_name = ''
+    from_header = msg.get('From', '') if hasattr(msg, 'get') else ''
+    if from_header:
+        if '<' in from_header:
+            sender_name = from_header.split('<')[0].strip().strip('"')
+        else:
+            sender_name = from_header.strip()
+    
+    company_name = sender_name or domain.split('.')[0] if domain else ''
+    
+    # Build findings with all required fields
     findings = {
         'authentication': {'spf': spf_res, 'dkim': dkim_res, 'dmarc': dmarc_res},
         'domain': domain_whois,
         'red_flags': red_flags,
         'sender_email': sender_email,
         'sender_domain': domain,
+        'sender_name': sender_name,
+        'company_name': company_name,
+        'raw_email': str(msg.as_string()) if hasattr(msg, 'as_string') else str(msg),
         'content_lower': email_body.lower(),
     }
     
@@ -373,7 +388,84 @@ def generate_report(file_path, output_path=None):
     }
     color = next((c for k, c in color_map.items() if k in threat['verdict']), '#ffffff')
     
-    html = f"""<!DOCTYPE html>
+    # Export based on format
+    if format_type == "json":
+        import json
+        output_json = {
+            "file": file_path.name,
+            "timestamp": datetime.now().isoformat(),
+            "score": threat['score'],
+            "verdict": threat['verdict'],
+            "authentication": findings['authentication'],
+            "verification": findings.get('verified', {}),
+            "backtrace": findings.get('backtrace', {}),
+            "red_flags": red_flags,
+            "contributing_factors": threat.get('reasons', [])
+        }
+        with open(output_path, 'w') as f:
+            json.dump(output_json, f, indent=2)
+        print(f"Report exported to {output_path} (JSON format)")
+        return True
+    
+    elif format_type == "markdown":
+        md_lines = [
+            f"# Email Forensics Report: {file_path.name}",
+            "",
+            f"**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            "",
+            "## Threat Assessment",
+            f"- **Score:** {threat['score']}/100",
+            f"- **Verdict:** {threat['verdict']}",
+            "",
+            "## Authentication",
+            f"- SPF: {spf_res.get('result', 'N/A').upper()}",
+            f"- DKIM: {dkim_res.get('result', 'N/A').upper()}",
+            f"- DMARC: {dmarc_res.get('result', 'N/A').upper()}",
+            "",
+        ]
+        
+        # Verification section
+        verified = findings.get('verified', {})
+        if verified and verified.get('verification_complete'):
+            md_lines.extend([
+                "## Recruiter Verification",
+                f"- Domain Age: {verified.get('domain_age_days', 'Unknown')} days",
+                f"- MX Records: {'Valid' if verified.get('mx_valid') else 'No MX records'}",
+                f"- Company Website: {'Exists' if verified.get('company_website_exists') else 'Not found'}",
+                "",
+            ])
+        
+        # Backtrace section
+        backtrace = findings.get('backtrace', {})
+        if backtrace:
+            md_lines.extend([
+                "## Email Backtrace",
+                f"- Origin IP: {backtrace.get('origin_ip', 'N/A')}",
+                f"- Total Hops: {backtrace.get('total_hops', 0)}",
+                "",
+            ])
+        
+        # Red flags
+        if red_flags:
+            md_lines.append("## Red Flags")
+            for rf in red_flags:
+                md_lines.append(f"- [{rf['category']}] {rf['match']}")
+            md_lines.append("")
+        
+        # Contributing factors
+        if threat.get('reasons'):
+            md_lines.append("## Contributing Factors")
+            for reason in threat['reasons']:
+                md_lines.append(f"- {reason}")
+            md_lines.append("")
+        
+        with open(output_path, 'w') as f:
+            f.write('\n'.join(md_lines))
+        print(f"Report exported to {output_path} (Markdown format)")
+        return True
+    
+    else:  # HTML
+        html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -566,11 +658,17 @@ Examples:
     batch_parser.add_argument('-v', '--verbose', action='store_true', help='Show detailed analysis')
     
     # Report command
-    report_parser = subparsers.add_parser('report', help='Generate HTML report')
+    report_parser = subparsers.add_parser('report', help='Generate report')
     report_parser.add_argument('file', type=str, help='Path to .eml file')
-    report_parser.add_argument('-o', '--output', type=str, help='Output HTML file path')
+    report_parser.add_argument('-o', '--output', type=str, help='Output file path')
+    report_parser.add_argument('-f', '--format', choices=['html', 'json', 'markdown'], default='html',
+                                help='Output format (default: html)')
     
     args = parser.parse_args()
+    
+    if args.command == 'report':
+        success = generate_report(args.file, args.output, args.format)
+        sys.exit(0 if success else 1)
     
     if args.command == 'analyze':
         success = analyze_single(args.file, verbose=args.verbose)
