@@ -556,9 +556,9 @@ class ScamDetectorApp(ctk.CTk):
     
     # ==================== UTILITY METHODS ====================
     
-    def change_mode(self, mode):
-        """Switch between single/batch/history/demo tabs."""
-        pass  # Notebook handles this automatically
+#    def change_mode(self, mode):
+#        """Switch between single/batch/history/demo tabs."""
+#        pass  # Notebook handles this automatically
     
     def on_resize(self, event=None):
         """Handle window resize events."""
