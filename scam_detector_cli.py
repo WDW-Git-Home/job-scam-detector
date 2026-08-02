@@ -632,6 +632,58 @@ Regards,
     print("⚠️ DO NOT SHARE PERSONAL INFO UNTIL VERIFIED!")
     print("="*60 + "\n")
 
+def check_for_updates(auto=False):
+    """Check for updates and run maintenance."""
+    import subprocess
+    
+    print("\nChecking for updates...\n")
+    
+    # Check pip packages
+    try:
+        result = subprocess.run(['pip', 'list', '--outdated'], capture_output=True, text=True)
+        if result.returncode == 0 and result.stdout.strip():
+            print("OUTDATED PACKAGES:")
+            print(result.stdout)
+            if auto:
+                print("\nUpdating packages...")
+                subprocess.run(['pip', 'install', '-U', '-r', 'requirements.txt'])
+                print("Update complete!")
+        else:
+            print("All packages are up to date.")
+    except Exception as e:
+        print(f"Could not check pip packages: {e}")
+    
+    # Check GeoIP database
+    from pathlib import Path
+    db_path = Path('data/GeoLite2-Country.mmdb')
+    if db_path.exists():
+        import time
+        days_old = int((time.time() - db_path.stat().st_mtime) / 86400)
+        print(f"\nGeoIP database: {days_old} days old")
+        if days_old > 90:
+            print("WARNING: Refresh recommended (MaxMind suggests 90-day cycle)")
+    else:
+        print("GeoIP database not found - email backtrace limited")
+    
+    # Check Git repo
+    try:
+        result = subprocess.run(['git', 'fetch'], capture_output=True, text=True, cwd='/home/owner/Documents/scam-detector')
+        result2 = subprocess.run(['git', 'status', '-uno'], capture_output=True, text=True, cwd='/home/owner/Documents/scam-detector')
+        if "Your branch is up to date" in result2.stdout or "nothing to commit" in result2.stdout:
+            print("\nGit repository: Up to date")
+        else:
+            print("\nGit repository: Updates available")
+            if auto:
+                print("Pulling updates...")
+                subprocess.run(['git', 'pull'], cwd='/home/owner/Documents/scam-detector')
+                print("Update complete!")
+    except Exception as e:
+        print(f"Could not check Git: {e}")
+    
+    print("\nUpdate check complete!")
+
+
+
 def main():
     parser = argparse.ArgumentParser(
         description='Job Scam Detector - Command Line Interface',
@@ -657,6 +709,13 @@ Examples:
     batch_parser.add_argument('folder', type=str, help='Path to folder containing .eml/.mbox files')
     batch_parser.add_argument('-v', '--verbose', action='store_true', help='Show detailed analysis')
     
+    # Maintenance command
+    maint_parser = subparsers.add_parser('update-check', help='Check for updates and run maintenance')
+    maint_parser.add_argument('--auto', action='store_true', help='Run maintenance automatically')
+    
+    # Update check command
+    update_parser = subparsers.add_parser('check-updates', help='Check for dependency and GeoIP updates')
+    
     # Report command
     report_parser = subparsers.add_parser('report', help='Generate report')
     report_parser.add_argument('file', type=str, help='Path to .eml file')
@@ -665,6 +724,10 @@ Examples:
                                 help='Output format (default: html)')
     
     args = parser.parse_args()
+    
+    if args.command == 'update-check':
+        check_for_updates(auto=args.auto)
+        sys.exit(0)
     
     if args.command == 'report':
         success = generate_report(args.file, args.output, args.format)
