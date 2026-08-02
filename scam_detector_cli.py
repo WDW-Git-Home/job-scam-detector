@@ -90,6 +90,34 @@ def analyze_single(file_path, verbose=False):
         else:
             print(f"  None detected")
     
+    # Extract sender name from message
+    sender_name = ''
+    from_header = msg.get('From', '') if hasattr(msg, 'get') else ''
+    if from_header:
+        # Extract name from "Name <email>" format
+        if '<' in from_header:
+            sender_name = from_header.split('<')[0].strip().strip('"')
+        else:
+            sender_name = from_header.strip()
+    
+    # Extract raw email text for backtrace
+    raw_email = ''
+    try:
+        import email
+        if hasattr(msg, 'as_string'):
+            raw_email = msg.as_string()
+        else:
+            raw_email = str(msg)
+    except:
+        raw_email = email_body
+    
+    # Try to detect company name from sender domain or email
+    company_name = ''
+    if sender_name:
+        company_name = sender_name
+    elif domain:
+        company_name = domain.split('.')[0] if '.' in domain else domain
+    
     # Build findings
     findings = {
         'authentication': {
@@ -101,6 +129,9 @@ def analyze_single(file_path, verbose=False):
         'red_flags': red_flags,
         'sender_email': sender_email,
         'sender_domain': domain,
+        'sender_name': sender_name,
+        'company_name': company_name,
+        'raw_email': raw_email,
         'content_lower': email_body.lower(),
     }
     
@@ -108,17 +139,72 @@ def analyze_single(file_path, verbose=False):
     threat = calculate_threat_score(findings)
     
     # Output results
+
     print(f"\n{'='*60}")
     print(f"THREAT SCORE: {threat['score']}/100")
     print(f"VERDICT: {threat['verdict']}")
     print(f"{'='*60}")
-    
-    if verbose and threat.get('reasons'):
-        print(f"\nContributing Factors:")
-        for reason in threat['reasons']:
-            print(f"  • {reason}")
+
+    if verbose:
+        # Verification status
+        verified = findings.get('verified')
+        if verified and verified.get('verification_complete'):
+            dom_age = verified.get('domain_age_days', -1)
+            mx_valid = verified.get('mx_valid', False)
+            website_exists = verified.get('company_website_exists', False)
+            
+            dom_status = f"{dom_age} days" if dom_age > 0 else "Unknown"
+            mx_status = "Valid" if mx_valid else "No MX records"
+            site_status = "Exists" if website_exists else "Not found"
+            
+            print(f"\nRecruiter Verification:")
+            print(f"  Domain Age:       {dom_status}")
+            print(f"  MX Records:       {mx_status}")
+            print(f"  Company Website:  {site_status}")
+            
+            if verified.get('flags'):
+                print(f"\n  Issues Detected:")
+                for flag in verified['flags']:
+                    print(f"    • {flag}")
+        else:
+            print(f"\nRecruiter Verification: Not available")
+        
+        # Backtrace status
+        backtrace = findings.get('backtrace')
+        if backtrace:
+            origin_ip = backtrace.get('origin_ip', 'N/A')
+            total_hops = backtrace.get('total_hops', 0)
+            geo = backtrace.get('geo_location')
+            rdns = backtrace.get('reverse_dns', 'N/A')
+            
+            geo_str = "Unknown"
+            if geo:
+                geo_str = f"{geo.get('city', 'Unknown')}, {geo.get('country_name', 'Unknown')} ({geo.get('country_code', 'XX')})"
+            
+            print(f"\nEmail Backtrace:")
+            print(f"  Origin IP:      {origin_ip}")
+            print(f"  Total Hops:     {total_hops}")
+            print(f"  Reverse DNS:    {rdns}")
+            print(f"  Geo Location:   {geo_str}")
+            
+            if backtrace.get('gmail_hiding'):
+                print(f"  ⚠ Gmail/Outlook email — origin IP hidden")
+            
+            if backtrace.get('route_suspicious'):
+                print(f"\n  ⚠ Suspicious Route:")
+                for factor in backtrace.get('risk_factors', []):
+                    print(f"    • {factor}")
+        else:
+            print(f"\nEmail Backtrace: Not available")
+        
+        # Contributing factors
+        if threat.get('reasons'):
+            print(f"\nContributing Factors:")
+            for reason in threat['reasons']:
+                print(f"  • {reason}")
     
     print()
+    return True
     return True
 
 

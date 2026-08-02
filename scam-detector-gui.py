@@ -61,6 +61,35 @@ LOG_DIR = Path.home() / "Documents" / "logs" / "scam_detector"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 HISTORY_DB = CONFIG_DIR / "scan_history.db"
 
+# Theme configuration for HTML reports
+THEME_CONFIG_PATH = CONFIG_DIR / "report_theme.json"
+DEFAULT_THEME = "dark"
+
+def load_theme_preference():
+    """Load saved theme preference."""
+    try:
+        if THEME_CONFIG_PATH.exists():
+            with open(THEME_CONFIG_PATH, "r") as f:
+                return json.load(f).get("report_theme", DEFAULT_THEME)
+    except:
+        pass
+    return DEFAULT_THEME
+
+def save_theme_preference(name):
+    """Save theme preference."""
+    try:
+        with open(THEME_CONFIG_PATH, "w") as f:
+            json.dump({"report_theme": name}, f)
+    except:
+        pass
+
+THEMES = {
+    "dark": {"name": "Batman Dark", "bg": "#0a0a0a", "fg": "#e0e0e0", "accent": "#ffc300", "section_bg": "#1a1a1a", "border": "#3a3a3a", "secondary_fg": "#888888", "muted_fg": "#555555", "disclaimer_bg": "#1a1500", "disclaimer_border": "#ffc300"},
+    "light": {"name": "Light Mode", "bg": "#fff", "fg": "#333", "accent": "#6d4aff", "section_bg": "#f5f5f5", "border": "#ddd", "secondary_fg": "#666", "muted_fg": "#999", "disclaimer_bg": "#fff3e0", "disclaimer_border": "#ff9800"},
+    "proton": {"name": "Proton Purple", "bg": "#12121f", "fg": "#fff", "accent": "#6d4aff", "section_bg": "#1e1e36", "border": "#6d4aff", "secondary_fg": "#b8b8d4", "muted_fg": "#8888aa", "disclaimer_bg": "#241e2e", "disclaimer_border": "#6d4aff"},
+    "high-contrast": {"name": "High Contrast", "bg": "#000", "fg": "#ff0", "accent": "#0f0", "section_bg": "#111", "border": "#333", "secondary_fg": "#0f0", "muted_fg": "#aaa", "disclaimer_bg": "#220", "disclaimer_border": "#ff0"}
+}
+
 # Test cases embedded as built-in demos
 TEST_CASES = {
     'gm_sami_first': {
@@ -247,7 +276,7 @@ class ScamDetectorApp(ctk.CTk):
         # Export button
         self.export_btn = ctk.CTkButton(
             result_frame, 
-            text="💾 Export Report to HTML/PDF", 
+            text="💾 Export Report", 
             command=self.export_results,
             width=250
         )
@@ -469,9 +498,43 @@ class ScamDetectorApp(ctk.CTk):
             width=200
         ).pack(pady=10)
         
+        # Theme Selection
+        theme_frame = ctk.CTkFrame(tab)
+        theme_frame.grid(row=1, column=0, sticky="ew", padx=20, pady=10)
+        
+        ctk.CTkLabel(
+            theme_frame,
+            text="HTML Report Theme",
+            font=("Arial", 14, "bold")
+        ).pack(pady=(10, 5))
+        
+        current_theme = load_theme_preference()
+        
+        theme_var = ctk.StringVar(value=current_theme)
+        theme_dropdown = ctk.CTkComboBox(
+            theme_frame,
+            values=list(THEMES.keys()),
+            variable=theme_var,
+            width=200
+        )
+        theme_dropdown.pack(pady=5)
+        
+        def on_theme_change(val):
+            save_theme_preference(val)
+            self.theme_label.configure(text=f"Current: {THEMES[val]['name']}")
+        
+        theme_dropdown.configure(command=on_theme_change)
+        
+        self.theme_label = ctk.CTkLabel(
+            theme_frame,
+            text=f"Current: {THEMES[current_theme]['name']}",
+            text_color="gray",
+            font=("Arial", 10)
+        )
+        self.theme_label.pack()
         # About section
         about_frame = ctk.CTkFrame(tab)
-        about_frame.grid(row=1, column=0, sticky="ew", padx=20, pady=10)
+        about_frame.grid(row=2, column=0, sticky="ew", padx=20, pady=10)
         
         ctk.CTkLabel(
             about_frame,
@@ -738,6 +801,10 @@ AbuseIPDB: 2,000 queries/day
         else:
             factors_html = "<p>No contributing factors.</p>"
         
+        # Get current theme
+        current_theme = load_theme_preference()
+        theme = THEMES.get(current_theme, THEMES["dark"])
+        
         html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -748,8 +815,8 @@ AbuseIPDB: 2,000 queries/day
     body {{
         font-family: 'Segoe UI', Arial, sans-serif;
         margin: 20px;
-        background-color: #1a1a2e;
-        color: #eee;
+        background-color: {theme['bg']};
+        color: {theme['fg']};
     }}
     .container {{
         max-width: 900px;
@@ -757,7 +824,7 @@ AbuseIPDB: 2,000 queries/day
     }}
     .header {{
         text-align: center;
-        border-bottom: 2px solid #6d4aff;
+        border-bottom: 2px solid {theme['accent']};
         padding-bottom: 15px;
         margin-bottom: 20px;
     }}
@@ -766,7 +833,7 @@ AbuseIPDB: 2,000 queries/day
         padding: 20px;
         border-radius: 10px;
         margin: 15px 0;
-        background-color: #2a2a4e;
+        background-color: {theme['section_bg']};
         border: 2px solid {score_color};
     }}
     .score-number {{
@@ -781,15 +848,15 @@ AbuseIPDB: 2,000 queries/day
         text-transform: uppercase;
     }}
     .section {{
-        background-color: #2a2a4e;
+        background-color: {theme['section_bg']};
         border-radius: 8px;
         padding: 15px;
         margin: 15px 0;
     }}
     .section h3 {{
-        color: #6d4aff;
+        color: {theme['accent']};
         margin-top: 0;
-        border-bottom: 1px solid #444;
+        border-bottom: 1px solid {theme['border']};
         padding-bottom: 5px;
     }}
     .detail-table {{
@@ -798,12 +865,12 @@ AbuseIPDB: 2,000 queries/day
     }}
     .detail-table td {{
         padding: 6px 10px;
-        border-bottom: 1px solid #444;
+        border-bottom: 1px solid {theme['border']};
     }}
     .detail-table td:first-child {{
         font-weight: bold;
         width: 180px;
-        color: #999;
+        color: {theme['secondary_fg']};
     }}
     ul, ol {{
         line-height: 1.8;
@@ -812,17 +879,17 @@ AbuseIPDB: 2,000 queries/day
         text-align: center;
         margin-top: 20px;
         padding-top: 10px;
-        border-top: 1px solid #444;
-        color: #666;
+        border-top: 1px solid {theme['border']};
+        color: {theme['muted_fg']};
         font-size: 12px;
     }}
     .disclaimer {{
-        background-color: #3a2a1e;
-        border-left: 3px solid #ff6600;
+        background-color: {theme['disclaimer_bg']};
+        border-left: 3px solid {theme['disclaimer_border']};
         padding: 10px 15px;
         margin: 15px 0;
         font-size: 13px;
-        color: #ccc;
+        color: {theme['secondary_fg']};
     }}
 </style>
 </head>
@@ -831,7 +898,7 @@ AbuseIPDB: 2,000 queries/day
     <div class="header">
         <h1>🔍 Email Forensics Report</h1>
         <p>Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
-        <p style="font-size: 12px; color: #999;">Job Scam Detector v3.1 — Proton-Educated Edition</p>
+        <p style="font-size: 12px; color: {theme['secondary_fg']};">Job Scam Detector v3.1 — Proton-Educated Edition</p>
     </div>
     
     <div class="score-box">
