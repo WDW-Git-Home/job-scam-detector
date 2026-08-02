@@ -1,5 +1,17 @@
-__pycache__/
+# Editor backups
+*~
 *.pyc
-venv/
-*.deb
-MAIL2BCHECKED/
+__pycache__/
+
+# Generated outputs
+backup_*/
+report.json
+report.md
+data/
+
+# GeoIP downloads
+GeoLite2-Country_*.tar.gz
+GeoIP.conf
+
+# Test runner
+run_tests.py
