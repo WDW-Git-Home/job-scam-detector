@@ -52,6 +52,16 @@ RED_FLAGS = {
             r"dl\s*copy",
             r"last\s*4\s*digits.*ssn",
             r"date\s*of\s*birth.*dd/mm/yyyy",
+            r"full\s+name\s*:",
+            r"contact\s+number",
+            r"skype\s*id",
+            r"visa\s*(?:/\s*)?work\s*permit",
+            r"send\s+(?:me|us)\s+(?:your|the)\s+resume",
+            r"submit\s+(?:your)\s+application",
+            r"updated\s+resume",
+            r"expected\s+(?:salary|base)",
+            r"current\s+rate",
+            r"notice\s+period",
         ],
         'description': 'Requests for Personally Identifiable Information (PII)'
     },
@@ -276,13 +286,72 @@ def parse_eml_file(filepath):
         return None
 
 def parse_pasted_email(raw_text):
-    """Parse pasted email text (headers + body) into a message object."""
+    """Parse pasted email text into a message object.
+    Handles three formats:
+    1. Full RFC 822 (headers + body)
+    2. Webmail copy (visible From:/Sent:/Subject: lines + body)
+    3. Body-only plain text (adds dummy headers)
+    """
+    from email.parser import Parser
+    from email.policy import default
+    from datetime import datetime
+    import re
+
+    raw_text = raw_text.strip()
+    if not raw_text:
+        return None
+
+    # Format 1: Check for RFC 822 headers (From:, Date:, Subject:, etc.)
+    header_pattern = re.match(r'^[A-Za-z][A-Za-z0-9-]*:\s*', raw_text)
+
+    if header_pattern:
+        try:
+            msg = Parser(policy=default).parsestr(raw_text)
+            return msg
+        except Exception as e:
+            print(f"Error parsing pasted email: {e}")
+            return None
+
+    # Format 2: Check for webmail-style visible headers
+    from_match = re.search(
+        r'(?:From|Sender):\s*([^\n<]*?)\s*<?([\w.+-]+@[\w.-]+)>?',
+        raw_text, re.IGNORECASE
+    )
+    sent_match = re.search(r'(?:Sent|Date):\s*([^\n]+)', raw_text, re.IGNORECASE)
+    subject_match = re.search(r'(?:Subject|RE|Fwd):\s*([^\n]+)', raw_text, re.IGNORECASE)
+
+    # Build RFC 822 headers from detected info
+    headers = []
+
+    if from_match:
+        name = from_match.group(1).strip() if from_match.group(1) else "Unknown"
+        email_addr = from_match.group(2).strip() if from_match.group(2) else "unknown@example.com"
+        headers.append(f"From: {name} <{email_addr}>")
+    else:
+        headers.append("From: unknown@example.com")
+
+    if sent_match:
+        headers.append(f"Date: {sent_match.group(1).strip()}")
+    else:
+        headers.append(f"Date: {datetime.now().strftime('%a, %d %b %Y %H:%M:%S %z')}")
+
+    if subject_match:
+        headers.append(f"Subject: {subject_match.group(1).strip()}")
+    else:
+        headers.append("Subject: Scam Analysis Request")
+
+    headers.append("Content-Type: text/plain")
+
+    # Combine headers + original body
+    formatted = "\n".join(headers) + "\n\n" + raw_text
+
     try:
-        msg = Parser(policy=policy.default).parsestr(raw_text)
+        msg = Parser(policy=default).parsestr(formatted)
         return msg
     except Exception as e:
         print(f"Error parsing pasted email: {e}")
         return None
+
 
 def extract_sender_domain(msg):
     """Extract the domain from the From header."""
@@ -815,25 +884,25 @@ def calculate_threat_score(findings):
     sender_domain_lower = sender_domain.lower()
 
     for brand, allowed_domains in BRAND_OFFICIAL_DOMAINS.items():
-    allowed_lower = [d.lower() for d in allowed_domains]
-    
-    # Skip if sender domain is an official domain (case-insensitive)
-    if sender_domain_lower in allowed_lower:
-        continue
-    
-    # Case-insensitive brand name check
-    if brand.lower() in sender_domain_lower:
-        score += 20
-        reasons.append(f"Domain resembles '{brand.title()}' but doesn't match official domain")
-        break
+        allowed_lower = [d.lower() for d in allowed_domains]
+        
+        # Skip if sender domain is an official domain (case-insensitive)
+        if sender_domain_lower in allowed_lower:
+            continue
+        
+        # Case-insensitive brand name check
+        if brand.lower() in sender_domain_lower:
+            score += 20
+            reasons.append(f"Domain resembles '{brand.title()}' but doesn't match official domain")
+            break
 
     # Add this to calculate_threat_score() after the recruiter verification section:
 
     # ===========================================================================
     # EMAIL BACKTRACING (NEW)
     # ===========================================================================
-    if sender_email and raw_email:  # raw_email needed for header parsing
-    from scam_detector_backtrace import EmailBacktracer, analyze_route_suspicion
+    if sender_email and findings.get('raw_email', ''):  # raw_email needed for header parsing
+        from scam_detector_backtrace import EmailBacktracer, analyze_route_suspicion
     
     # Load GeoLite2 database path from config
     try:
@@ -843,7 +912,7 @@ def calculate_threat_score(findings):
     
     try:
         backtracer = EmailBacktracer(GEOIP_DATABASE_PATH)
-        backtrace_result = backtracer.backtrace_email(raw_email)
+        backtrace_result = backtracer.backtrace_email(findings.get('raw_email', ''))
         
         # Store for reporting
         findings['backtrace'] = backtrace_result

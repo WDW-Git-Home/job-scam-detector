@@ -36,7 +36,7 @@ def is_private_ip(ip):
     return False
 
 class EmailBacktracer:
-def __init__(self, db_path=None):
+    def __init__(self, db_path=None):
         self.db_path = db_path
         self.geo_reader = None
         

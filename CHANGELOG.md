@@ -82,3 +82,24 @@ All notable changes to Job Scam Detector will be documented in this file.
 
 ### Added
 - Initial concept: paste email text, get basic flags
+
+## v3.0.1 (2026-08-03)
+
+### Fixed
+- CTkScrollableFrame crash on Linux/Python 3.12 → replaced with CTkFrame
+- Missing `if __name__ == "__main__":` entry point → added launch code
+- `sender_email`/`sender_domain` not in findings dict → extracted and passed to scoring
+- `raw_email` undefined in `calculate_threat_score()` → changed to `findings.get('raw_email')`
+- Exception handler scope error (`NameError: e`) → captured as string before lambda
+- `finally` block missing → progress label and button state not resetting after analysis
+- `clear_single_tab()` not resetting analyze button and progress → added reset calls
+
+### Added
+- Job scam detection patterns (resume requests, PII collection fields like Full Name, Contact Number, Skype ID, Visa Status)
+- Smart email parser supporting body-only pastes (webmail format)
+- Sender extraction from visible "From:" lines in pasted text
+
+### Improvements
+- Red flag detection now catches 8+ patterns for recruitment scams
+- Threat scoring works with partial headers (no SPF/DKIM penalty when missing)
+- GUI state management fixed (button re-enables after clear/analysis)

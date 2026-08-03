@@ -48,7 +48,6 @@ try:
 except ImportError:
     # Fallback if running standalone
     print("Warning: scam_detector_core.py not found. Some features may be limited.")
-
 # Theme settings
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
@@ -267,7 +266,7 @@ class ScamDetectorApp(ctk.CTk):
         self.progress_label.grid(row=4, column=0, pady=5)
         
         # Results area
-        result_frame = ctk.CTkScrollableFrame(tab, height=300)
+        result_frame = ctk.CTkFrame(tab, height=300)
         result_frame.grid(row=5, column=0, sticky="nsew", padx=10, pady=10)
         
         self.result_label = ctk.CTkLabel(result_frame, text="Results will appear here after analysis.", justify="left")
@@ -995,14 +994,23 @@ AbuseIPDB: 2,000 queries/day
                 return
             
             # Run checks
+            # Extract sender info BEFORE building findings
+            sender_domain, sender_email = extract_sender_domain(msg)
+            
+            # Run checks
             findings = {
+                'sender_email': sender_email,
+                'sender_domain': sender_domain,
+                'sender_name': '',
+                'company_name': '',
                 'authentication': {
                     'spf': check_spf(msg),
                     'dkim': check_dkim(msg),
                     'dmarc': check_dmarc(msg),
                 },
-                'domain': whois_domain_age(extract_sender_domain(msg)[0]) if extract_sender_domain(msg)[0] else {},
+                'domain': whois_domain_age(sender_domain) if sender_domain else {},
                 'red_flags': scan_red_flags(email_text),
+                'raw_email': email_text,
             }
             
             threat = calculate_threat_score(findings)
@@ -1014,7 +1022,10 @@ AbuseIPDB: 2,000 queries/day
             self.after(0, lambda: self.update_single_results(threat, findings))
             
         except Exception as e:
-            self.after(0, lambda: messagebox.showerror("Analysis Error", str(e)))
+            error_msg = str(e)
+            self.after(0, lambda err=error_msg: messagebox.showerror("Analysis Error", err))
+            self.after(0, lambda: self.progress_label.configure(text=""))
+            self.after(0, lambda: self.analyze_btn.configure(state="normal"))
         finally:
             self.after(0, lambda: self.progress_label.configure(text=""))
             self.after(0, lambda: self.analyze_btn.configure(state="normal"))
@@ -1286,6 +1297,7 @@ RECIPIENT VERIFICATION STATUS:
                 },
                 'domain': {'creation_date': 'demo', 'age_days': 180},
                 'red_flags': scan_red_flags(test_case['raw_email']),
+                'raw_email': email_text,
             }
             
             threat = calculate_threat_score(findings)
@@ -1343,10 +1355,11 @@ Contributing factors:
         self.email_text.delete("1.0", "end")
         self.result_label.configure(text="Results will appear here after analysis.", text_color="black")
         self.file_path_label.configure(text="No file selected")
+        self.analyze_btn.configure(state="normal")
+        self.progress_label.configure(text="")
         self.current_result = None
 
 
-# Entry point
 if __name__ == "__main__":
     app = ScamDetectorApp()
     app.mainloop()
